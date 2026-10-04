@@ -128,22 +128,26 @@ class LunaViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    @JvmName("applyLanguage")
     fun setLanguage(value: String) {
         language = value
         prefs.language = value
     }
 
+    @JvmName("applySpeakReplies")
     fun setSpeakReplies(value: Boolean) {
         speakReplies = value
         prefs.speakReplies = value
         if (!value) voice.stopSpeaking()
     }
 
+    @JvmName("applyOfflineMode")
     fun setOfflineMode(value: Boolean) {
         offlineMode = value
         prefs.offlineMode = value
     }
 
+    @JvmName("applyWakeEnabled")
     fun setWakeEnabled(value: Boolean) {
         wakeEnabled = value
         prefs.wakeEnabled = value
