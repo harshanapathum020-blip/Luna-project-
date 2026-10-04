@@ -1,5 +1,13 @@
 package com.luna.assistant.ui
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -48,6 +56,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,7 +75,15 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
+import com.luna.assistant.AppState
+import com.luna.assistant.LunaAccessibilityService
+import com.luna.assistant.LunaNotificationListener
 import com.luna.assistant.ChatMessage
 import com.luna.assistant.LunaViewModel
 import com.luna.assistant.OrbState
@@ -274,8 +291,10 @@ fun LunaScreen(vm: LunaViewModel, onMic: () -> Unit) {
             ) {
                 listOf(
                     "Hi Luna, kohomada?",
-                    "Mata joke ekak kiyanna",
-                    "Tell me an interesting fact"
+                    "Set an alarm for 7 am",
+                    "Timer 5 minutes",
+                    "Read my WhatsApp messages",
+                    "What is on my screen?"
                 ).forEach { s -> SuggestionChip(s) { vm.sendText(s) } }
             }
         }
@@ -592,15 +611,25 @@ fun ControlsScreen(vm: LunaViewModel) {
                 color = TextSecondary,
                 fontSize = 12.sp
             )
+            ToggleRow("Offline mode (internet nathuwa)", vm.offlineMode) { vm.setOfflineMode(it) }
+            Text(
+                "Offline mode eke Gemini use karanne nae. Alarm, timer, call, flashlight, volume wage phone commands witharai wada karanne. Speech eka offline wada karanna Google app eke offline speech pack download karala thiyenna one.",
+                color = TextSecondary,
+                fontSize = 12.sp
+            )
         }
 
         SectionCard("WAKE WORD") {
+            ToggleRow("'Wake up Luna' always listening", vm.wakeEnabled) { vm.setWakeEnabled(it) }
+            Text("Status: ${AppState.wakeStatus}", color = TextSecondary, fontSize = 13.sp)
             Text(
-                "'Wake up baby' wake word eka dan off. Eka wada karanna Picovoice key ekak saha .ppn file ekak one.",
+                "App eka close karalath wada karanna Microphone permission, Picovoice key saha assets folder eke wake_up_luna_android.ppn file eka one.",
                 color = TextSecondary,
-                fontSize = 13.sp
+                fontSize = 12.sp
             )
         }
+
+        PhoneControlCard()
 
         Button(
             onClick = {
@@ -634,6 +663,135 @@ private fun LangChoice(label: String, selected: Boolean, onClick: () -> Unit) {
             color = if (selected) DarkSurface else TextPrimary,
             fontWeight = FontWeight.SemiBold,
             fontSize = 14.sp
+        )
+    }
+}
+
+
+@Composable
+private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, color = TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = DarkSurface,
+                checkedTrackColor = NeonCyan,
+                uncheckedThumbColor = TextSecondary,
+                uncheckedTrackColor = DarkSurface,
+                uncheckedBorderColor = TextSecondary
+            )
+        )
+    }
+}
+
+@Composable
+private fun AccessRow(label: String, hint: String, ok: Boolean, action: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, color = TextPrimary, fontSize = 14.sp)
+            Text(
+                text = if (ok) "ON ✓" else hint,
+                color = if (ok) NeonCyan else ErrorRed,
+                fontSize = 12.sp
+            )
+        }
+        if (!ok) {
+            TextButton(onClick = onClick) { Text(action, color = NeonCyan, fontWeight = FontWeight.Bold) }
+        }
+    }
+}
+
+@Composable
+private fun PhoneControlCard() {
+    val context = LocalContext.current
+    var tick by remember { mutableStateOf(0) }
+
+    val owner = context as? LifecycleOwner
+    DisposableEffect(owner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) tick++
+        }
+        owner?.lifecycle?.addObserver(observer)
+        onDispose { owner?.lifecycle?.removeObserver(observer) }
+    }
+
+    val permissions = remember {
+        buildList {
+            add(Manifest.permission.RECORD_AUDIO)
+            add(Manifest.permission.CALL_PHONE)
+            add(Manifest.permission.READ_CONTACTS)
+            add(Manifest.permission.SEND_SMS)
+            add(Manifest.permission.READ_SMS)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+    val permLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { tick++ }
+
+    val permsOk = remember(tick) {
+        permissions.all {
+            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+    val accessibilityOk = remember(tick) { LunaAccessibilityService.isEnabled(context) }
+    val notificationOk = remember(tick) { LunaNotificationListener.isEnabled(context) }
+    val overlayOk = remember(tick) { Settings.canDrawOverlays(context) }
+
+    fun open(intent: Intent) {
+        try {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {
+            // ignore
+        }
+    }
+
+    SectionCard("PHONE CONTROL") {
+        Text(
+            "Luna ta phone eka control karanna meka okkoma on karanna.",
+            color = TextSecondary,
+            fontSize = 12.sp
+        )
+        AccessRow(
+            "Permissions (mic, calls, contacts, SMS)",
+            "OFF",
+            permsOk,
+            "Grant"
+        ) { permLauncher.launch(permissions.toTypedArray()) }
+        AccessRow(
+            "Display over other apps (alarm/timer/app open wage dewal app eka close wela inna kota wada karanna)",
+            "OFF",
+            overlayOk,
+            "Open"
+        ) { open(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))) }
+        AccessRow(
+            "Accessibility (screen balanna, back/home, scroll, tap)",
+            "OFF",
+            accessibilityOk,
+            "Open"
+        ) { open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        AccessRow(
+            "Notification access (WhatsApp messages kiyawanna, reply karanna)",
+            "OFF",
+            notificationOk,
+            "Open"
+        ) { open(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+        Text(
+            "Screen eka balana kota screenshot eka Gemini ekata yanawa. Nathnam Accessibility off karanna.",
+            color = TextSecondary,
+            fontSize = 12.sp
         )
     }
 }

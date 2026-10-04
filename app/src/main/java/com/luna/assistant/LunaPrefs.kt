@@ -42,6 +42,20 @@ class LunaPrefs(context: Context) {
             sp.edit().putBoolean("speak_replies", value).apply()
         }
 
+    /** Use only on-device features: no Gemini calls, speech recognition prefers offline packs. */
+    var offlineMode: Boolean
+        get() = sp.getBoolean("offline_mode", false)
+        set(value) {
+            sp.edit().putBoolean("offline_mode", value).apply()
+        }
+
+    /** Keep the always-listening "Wake up Luna" service running. */
+    var wakeEnabled: Boolean
+        get() = sp.getBoolean("wake_enabled", true)
+        set(value) {
+            sp.edit().putBoolean("wake_enabled", value).apply()
+        }
+
     fun loadHistory(): List<ChatMessage> {
         val raw = sp.getString("history", null) ?: return emptyList()
         return try {

@@ -7,3 +7,6 @@ app/build/
 captures/
 .externalNativeBuild/
 .cxx/
+*.jks
+*.keystore
+.DS_Store

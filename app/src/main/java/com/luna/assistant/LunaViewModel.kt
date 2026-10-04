@@ -15,7 +15,7 @@ enum class OrbState { IDLE, LISTENING, THINKING, SPEAKING }
 class LunaViewModel(app: Application) : AndroidViewModel(app) {
 
     val prefs = LunaPrefs(app)
-    private val brain = LunaBrain(prefs)
+    private val engine = LunaEngine(app, prefs)
 
     val messages = mutableStateListOf<ChatMessage>()
 
@@ -32,6 +32,12 @@ class LunaViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     var speakReplies by mutableStateOf(prefs.speakReplies)
+        private set
+
+    var offlineMode by mutableStateOf(prefs.offlineMode)
+        private set
+
+    var wakeEnabled by mutableStateOf(prefs.wakeEnabled)
         private set
 
     // Editable settings (saved when the user taps Save in Controls)
@@ -98,7 +104,7 @@ class LunaViewModel(app: Application) : AndroidViewModel(app) {
     private fun startListening() {
         notice = null
         orbState = OrbState.LISTENING
-        voice.startListening(if (language == "si") "si-LK" else "en-US")
+        voice.startListening(if (language == "si") "si-LK" else "en-US", prefs.offlineMode)
     }
 
     fun sendText(raw: String) {
@@ -110,7 +116,7 @@ class LunaViewModel(app: Application) : AndroidViewModel(app) {
         messages.add(ChatMessage(fromUser = true, text = text))
         orbState = OrbState.THINKING
         viewModelScope.launch {
-            val reply = brain.askLuna(text, context)
+            val reply = engine.process(text, context)
             messages.add(ChatMessage(fromUser = false, text = reply.text, isError = reply.isError))
             prefs.saveHistory(messages)
             if (!reply.isError && speakReplies) {
@@ -131,6 +137,25 @@ class LunaViewModel(app: Application) : AndroidViewModel(app) {
         speakReplies = value
         prefs.speakReplies = value
         if (!value) voice.stopSpeaking()
+    }
+
+    fun setOfflineMode(value: Boolean) {
+        offlineMode = value
+        prefs.offlineMode = value
+    }
+
+    fun setWakeEnabled(value: Boolean) {
+        wakeEnabled = value
+        prefs.wakeEnabled = value
+        val app = getApplication<Application>()
+        if (value) LunaWakeService.start(app) else LunaWakeService.stop(app)
+    }
+
+    /** The wake service can add messages while the app is closed. */
+    fun reloadHistory() {
+        if (orbState != OrbState.IDLE) return
+        messages.clear()
+        messages.addAll(prefs.loadHistory())
     }
 
     fun saveSettings() {

@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Luna Assistant</string>
+    <string name="accessibility_description">Lets Luna press Back/Home, scroll, tap buttons, type, read the screen and take screenshots when you ask her to.</string>
 </resources>

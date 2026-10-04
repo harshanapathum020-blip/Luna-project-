@@ -31,7 +31,7 @@ class MainActivity : ComponentActivity() {
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
-        if (result[Manifest.permission.RECORD_AUDIO] == true) {
+        if (result[Manifest.permission.RECORD_AUDIO] == true && vm.wakeEnabled) {
             startWakeService()
         }
     }
@@ -48,7 +48,7 @@ class MainActivity : ComponentActivity() {
 
         // Only run the always-listening wake word service when a real Picovoice key is set.
         // Without it the service would just show a notification and do nothing.
-        if (wakeWordConfigured()) {
+        if (wakeWordConfigured() && vm.wakeEnabled) {
             requestPermissionsThenStartService()
         }
 
@@ -79,12 +79,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startWakeService() {
-        val serviceIntent = Intent(this, LunaWakeService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
+        LunaWakeService.start(this)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        AppState.foreground = true
+        vm.reloadHistory()
+    }
+
+    override fun onStop() {
+        AppState.foreground = false
+        super.onStop()
     }
 
     override fun onDestroy() {

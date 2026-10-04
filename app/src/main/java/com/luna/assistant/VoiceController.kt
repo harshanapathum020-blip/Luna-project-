@@ -55,7 +55,7 @@ class VoiceController(
         })
     }
 
-    fun startListening(languageTag: String) {
+    fun startListening(languageTag: String, preferOffline: Boolean = false) {
         if (!SpeechRecognizer.isRecognitionAvailable(appContext)) {
             callbacks.onListenFailed(
                 "Me phone eke speech recognition nae. Google app eka install / update karanna."
@@ -109,6 +109,7 @@ class VoiceController(
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, languageTag)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, preferOffline)
             }
             recognizer = r
             r.startListening(intent)
