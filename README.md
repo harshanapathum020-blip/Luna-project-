@@ -4,6 +4,8 @@ Android voice assistant (Kotlin + Jetpack Compose) powered by Gemini, with a Pic
 
 ## What Luna can do
 - Talk in Sinhala / English / Singlish (speech in, speech out)
+- Live transcript while you talk, replies stream and are spoken sentence by sentence (fast)
+- Controls > VOICE: pick Luna's voice, speed and pitch; optional "Kathabaha mode" (keeps listening)
 - "Wake up Luna" wake word, also when the app is closed (foreground service)
 - Alarms, timers, phone calls, SMS (send and read)
 - Read WhatsApp messages and reply (via notification access)
@@ -21,6 +23,9 @@ Android voice assistant (Kotlin + Jetpack Compose) powered by Gemini, with a Pic
 2. Train "Wake up Luna" on https://console.picovoice.ai (platform: Android) and put the file at
    `app/src/main/assets/wake_up_luna_android.ppn`.
    The old `wake_up_baby_android.ppn` in this repo is only a placeholder.
+   **GitHub build walata:** repo eke Settings > Secrets and variables > Actions ekata
+   `PICOVOICE_ACCESS_KEY` (saha ona nam `GEMINI_API_KEY`) secrets widiyata danna. local.properties
+   git-ignored nisa, secret nathnam APK eke "Picovoice key missing" enawa.
 3. Push to GitHub. The Actions workflow builds a debug APK (Actions tab > Luna-APK artifact).
 4. Install the APK, open Luna > Controls and turn on:
    Permissions, Display over other apps, Accessibility, Notification access.

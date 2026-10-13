@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Always-on foreground service. Listens for the wake word with Picovoice Porcupine. When the app
@@ -39,12 +40,32 @@ class LunaWakeService : Service() {
 
     private var busy = false
     private var speaking = false
+    private var paused = false
+
+    /** Safety net: if a voice round never ends (recognizer stuck), wake listening is restored. */
+    private val watchdog = Runnable {
+        if (busy) finishSession()
+    }
 
     companion object {
         const val CHANNEL_ID = "LunaWakeChannel"
         const val NOTIFICATION_ID = 1001
         const val ACTION_WAKE_DETECTED = "com.luna.assistant.WAKE_DETECTED"
         private const val FALLBACK_KEYWORD = "wake_up_baby_android.ppn"
+        private const val WATCHDOG_MS = 90_000L
+
+        @Volatile
+        private var instance: LunaWakeService? = null
+
+        /** The app screen is using the microphone: stop wake listening so the two do not collide. */
+        fun pause() {
+            instance?.pauseWake()
+        }
+
+        /** The app screen is idle again: listen for the wake word. */
+        fun resume() {
+            instance?.resumeWake()
+        }
 
         fun start(context: Context) {
             val granted = ContextCompat.checkSelfPermission(
@@ -71,6 +92,7 @@ class LunaWakeService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         prefs = LunaPrefs(this)
         engine = LunaEngine(this, prefs)
         createNotificationChannel()
@@ -79,10 +101,17 @@ class LunaWakeService : Service() {
         initWakeEngine()
     }
 
+    /** First usable .ppn in assets (real keyword files are far bigger than the 12-byte placeholder). */
     private fun pickKeyword(): String? {
-        for (name in listOf(Config.KEYWORD_ASSET_PATH, FALLBACK_KEYWORD)) {
+        val names = mutableListOf(Config.KEYWORD_ASSET_PATH, FALLBACK_KEYWORD)
+        try {
+            assets.list("")?.filter { it.endsWith(".ppn") }?.forEach { if (it !in names) names.add(it) }
+        } catch (e: Exception) {
+            // ignore
+        }
+        for (name in names) {
             try {
-                val size = assets.open(name).use { it.available() }
+                val size = assets.open(name).use { it.readBytes().size }
                 if (size > 1000) return name
             } catch (e: Exception) {
                 // try next
@@ -92,24 +121,60 @@ class LunaWakeService : Service() {
     }
 
     private fun initWakeEngine() {
-        if (Config.PICOVOICE_ACCESS_KEY.startsWith("YOUR_")) {
-            setStatus("Picovoice key missing")
+        val key = Config.PICOVOICE_ACCESS_KEY
+        if (key.isBlank() || key.startsWith("YOUR_")) {
+            setStatus("Picovoice key missing (build ekata PICOVOICE_ACCESS_KEY ekak denna one)")
             return
         }
         val keyword = pickKeyword()
         if (keyword == null) {
-            setStatus("Wake word file (.ppn) missing")
+            setStatus("Wake word file (.ppn) missing: assets/${Config.KEYWORD_ASSET_PATH}")
             return
         }
         try {
             porcupine = PorcupineManager.Builder()
-                .setAccessKey(Config.PICOVOICE_ACCESS_KEY)
+                .setAccessKey(key)
                 .setKeywordPath(keyword)
                 .setSensitivity(0.7f)
                 .build(applicationContext) { keywordIndex ->
                     if (keywordIndex == 0) main.post { onWake() }
                 }
             porcupine?.start()
+            paused = false
+            setStatus("Listening for '${Config.WAKE_WORD_TRIGGER}'")
+        } catch (e: Throwable) {
+            val m = e.localizedMessage.orEmpty()
+            setStatus(
+                when {
+                    m.contains("AccessKey", ignoreCase = true) && m.contains("invalid", ignoreCase = true) ->
+                        "Picovoice key eka waradi"
+                    m.contains("limit", ignoreCase = true) ->
+                        "Picovoice device limit iwara (Console eke wena device ekak ain karanna)"
+                    m.contains("version", ignoreCase = true) ->
+                        "Wake word file eka Porcupine version ekata match nae. Console eken aye download karanna"
+                    m.contains("network", ignoreCase = true) || m.contains("connect", ignoreCase = true) ->
+                        "Picovoice activation ekata internet one (eka parak witharai)"
+                    else -> "Wake engine error: ${m.take(120)}"
+                }
+            )
+        }
+    }
+
+    fun pauseWake() {
+        if (busy || porcupine == null) return
+        try {
+            porcupine?.stop()
+        } catch (e: Exception) {
+            // ignore
+        }
+        paused = true
+    }
+
+    fun resumeWake() {
+        if (busy || !paused || porcupine == null) return
+        try {
+            porcupine?.start()
+            paused = false
             setStatus("Listening for '${Config.WAKE_WORD_TRIGGER}'")
         } catch (e: Exception) {
             setStatus("Wake engine error: ${e.localizedMessage}")
@@ -118,6 +183,8 @@ class LunaWakeService : Service() {
 
     private fun onWake() {
         if (AppState.foreground) {
+            // The app screen handles the conversation; free the microphone for it.
+            pauseWake()
             sendBroadcast(Intent(ACTION_WAKE_DETECTED).setPackage(packageName))
             return
         }
@@ -128,33 +195,61 @@ class LunaWakeService : Service() {
         } catch (e: Exception) {
             // ignore
         }
+        main.removeCallbacks(watchdog)
+        main.postDelayed(watchdog, WATCHDOG_MS)
         setStatus("Luna is listening…")
         voice?.startListening(if (prefs.language == "si") "si-LK" else "en-US", prefs.offlineMode)
     }
 
     private fun handleHeard(text: String) {
         setStatus("Thinking…")
+        val v = voice ?: run {
+            finishSession()
+            return
+        }
         scope.launch {
             val history = prefs.loadHistory().filter { !it.isError }.takeLast(10)
-            val reply = engine.process(text, history)
+            val speak = prefs.speakReplies
+            val speaker = StreamSpeaker(v)
+            val last = AtomicReference("")
+            if (speak) v.beginSpeech()
+
+            val reply = engine.process(text, history) { visible ->
+                last.set(visible)
+                if (speak) speaker.feed(visible)
+            }
+
             val all = prefs.loadHistory().toMutableList()
             all.add(ChatMessage(fromUser = true, text = text))
             all.add(ChatMessage(fromUser = false, text = reply.text, isError = reply.isError))
             prefs.saveHistory(all)
-            if (prefs.speakReplies && reply.text.isNotBlank()) {
-                speaking = voice?.speak(reply.text) == true
-                if (!speaking) finishSession()
-            } else {
-                finishSession()
+
+            when {
+                reply.isError || reply.text.isBlank() || !speak -> {
+                    if (speak) v.stopSpeaking()
+                    finishSession()
+                }
+                reply.streamed -> {
+                    speaker.finish(last.get())
+                    speaking = speaker.spokeAnything
+                    v.endSpeech()
+                    if (!speaking) finishSession()
+                }
+                else -> {
+                    speaking = v.speak(reply.text)
+                    if (!speaking) finishSession()
+                }
             }
         }
     }
 
     private fun finishSession() {
+        main.removeCallbacks(watchdog)
         speaking = false
         busy = false
         try {
             porcupine?.start()
+            paused = false
             setStatus("Listening for '${Config.WAKE_WORD_TRIGGER}'")
         } catch (e: Exception) {
             setStatus("Wake engine error: ${e.localizedMessage}")
@@ -207,6 +302,8 @@ class LunaWakeService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        instance = null
+        main.removeCallbacks(watchdog)
         scope.cancel()
         try {
             porcupine?.stop()

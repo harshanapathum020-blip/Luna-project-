@@ -26,6 +26,9 @@ jobs:
           gradle-version: '8.9'
 
       - name: Build debug APK
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PICOVOICE_ACCESS_KEY: ${{ secrets.PICOVOICE_ACCESS_KEY }}
         run: gradle assembleDebug --no-daemon
 
       - name: Upload APK artifact

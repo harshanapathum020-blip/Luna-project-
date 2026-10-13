@@ -20,6 +20,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -28,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.luna.assistant.LunaViewModel
+import com.luna.assistant.LunaWakeService
+import com.luna.assistant.OrbState
 import com.luna.assistant.ui.theme.DarkSurface
 import com.luna.assistant.ui.theme.DarkSurfaceContainer
 import com.luna.assistant.ui.theme.NeonCyan
@@ -44,6 +47,12 @@ private val TABS = listOf(
 fun LunaApp(vm: LunaViewModel) {
     var tab by rememberSaveable { mutableStateOf(0) }
     val context = LocalContext.current
+
+    // Only one thing can use the microphone at a time: pause the wake word while the screen
+    // is listening / talking, and bring it back when the screen is idle again.
+    LaunchedEffect(vm.orbState) {
+        if (vm.orbState == OrbState.IDLE) LunaWakeService.resume() else LunaWakeService.pause()
+    }
 
     val micLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()

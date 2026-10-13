@@ -1,8 +1,6 @@
 package com.luna.assistant
 
 import android.graphics.Bitmap
-import com.google.ai.client.generativeai.GenerativeModel
-import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -12,6 +10,10 @@ import java.util.Locale
 data class BrainReply(val text: String, val isError: Boolean)
 
 class LunaBrain(private val prefs: LunaPrefs) {
+
+    private companion object {
+        val FALLBACK_MODELS = listOf("gemini-3.1-flash-lite", "gemini-3.5-flash")
+    }
 
     private fun resolveKey(): String {
         val saved = prefs.apiKey
@@ -30,10 +32,24 @@ class LunaBrain(private val prefs: LunaPrefs) {
         return "Conversation so far:\n$transcript\n\nUser: $prompt"
     }
 
+    /** Models to try, in order. A retired model (404) falls through to the next one. */
+    private fun candidateModels(): List<String> {
+        val chosen = prefs.model.trim()
+        val list = mutableListOf(chosen)
+        if (!chosen.endsWith("-preview")) list.add("$chosen-preview")
+        for (m in FALLBACK_MODELS) if (m !in list) list.add(m)
+        return list
+    }
+
+    /**
+     * [onText] gets the whole reply text received so far each time a new piece streams in
+     * (called from a background thread).
+     */
     suspend fun askLuna(
         prompt: String,
         history: List<ChatMessage> = emptyList(),
-        attachment: Bitmap? = null
+        attachment: Bitmap? = null,
+        onText: ((String) -> Unit)? = null
     ): BrainReply = withContext(Dispatchers.IO) {
         val key = resolveKey()
         if (key.isBlank()) {
@@ -42,48 +58,75 @@ class LunaBrain(private val prefs: LunaPrefs) {
                 true
             )
         }
-        try {
-            val model = GenerativeModel(
-                modelName = prefs.model,
-                apiKey = key,
-                systemInstruction = content { text(systemPrompt()) }
-            )
-            val fullPrompt = buildPrompt(prompt, history)
-            val response = if (attachment != null) {
-                model.generateContent(
-                    content {
-                        image(attachment)
-                        text(fullPrompt.ifBlank { "Describe what you see and respond." })
+        val fullPrompt = buildPrompt(prompt, history)
+            .ifBlank { "Describe what you see and respond." }
+        val system = systemPrompt()
+        var lastError: Exception? = null
+
+        for (model in candidateModels()) {
+            var lowThinking = true
+            // Second pass (only if the API rejects the thinking setting): same model, no thinking config.
+            for (attempt in 0..1) {
+                try {
+                    val text = GeminiClient.streamGenerate(
+                        apiKey = key,
+                        model = model,
+                        systemPrompt = system,
+                        userText = fullPrompt,
+                        image = attachment,
+                        lowThinking = lowThinking,
+                        onText = { partial -> onText?.invoke(partial) }
+                    )
+                    if (text.isEmpty()) {
+                        return@withContext BrainReply(
+                            "Mama ahuwa, eth reply ekak hadaganna bae giya. Aye try karanna.",
+                            true
+                        )
                     }
-                )
-            } else {
-                model.generateContent(fullPrompt)
+                    if (model != prefs.model) prefs.model = model
+                    return@withContext BrainReply(text, false)
+                } catch (e: GeminiHttpException) {
+                    lastError = e
+                    val thinkingRejected = e.code == 400 &&
+                        e.body.contains("think", ignoreCase = true)
+                    if (thinkingRejected && lowThinking) {
+                        lowThinking = false
+                        continue
+                    }
+                    break
+                } catch (e: Exception) {
+                    return@withContext BrainReply(friendlyError(e), true)
+                }
             }
-            val text = response.text?.trim().orEmpty()
-            if (text.isEmpty()) {
-                BrainReply("Mama ahuwa, eth reply ekak hadaganna bae giya. Aye try karanna.", true)
-            } else {
-                BrainReply(text, false)
-            }
-        } catch (e: Exception) {
-            BrainReply(friendlyError(e), true)
+            val code = (lastError as? GeminiHttpException)?.code
+            if (code != 404) break // only a missing/retired model is worth trying another one
         }
+        BrainReply(friendlyError(lastError ?: Exception("unknown")), true)
     }
 
     private fun friendlyError(e: Exception): String {
+        if (e is GeminiHttpException) {
+            val body = e.body
+            return when {
+                e.code == 400 && (body.contains("API key", ignoreCase = true) ||
+                    body.contains("API_KEY", ignoreCase = true)) ->
+                    "API key eka waradi. Controls tab eke key eka aye balala danna."
+                e.code == 403 ->
+                    "Gemini API key ekata permission nae (403). Key eka aye balanna."
+                e.code == 404 ->
+                    "Model eka (${prefs.model}) hambunae. Controls tab eke model nama wenas karanna (e.g. gemini-3.1-flash-lite)."
+                e.code == 429 ->
+                    "Gemini free limit eka iwara. Tikak inna aye try karanna."
+                e.code == 503 || e.code == 500 ->
+                    "Gemini server eka busy. Tikak inna aye try karanna."
+                else -> "Gemini error ${e.code}. ${body.take(160)}"
+            }
+        }
         val msg = e.localizedMessage ?: e.javaClass.simpleName
         return when {
-            msg.contains("API key not valid", ignoreCase = true) ||
-                msg.contains("API_KEY_INVALID", ignoreCase = true) ->
-                "API key eka waradi. Controls tab eke key eka aye balala danna."
-            msg.contains("not found", ignoreCase = true) ||
-                msg.contains("404") ->
-                "Model eka (${prefs.model}) hambunae. Controls tab eke model nama wenas karanna (e.g. gemini-2.5-flash)."
-            msg.contains("quota", ignoreCase = true) ||
-                msg.contains("429") ->
-                "Gemini free limit eka iwara. Tikak inna aye try karanna."
             msg.contains("Unable to resolve host", ignoreCase = true) ||
                 msg.contains("timeout", ignoreCase = true) ||
+                msg.contains("timed out", ignoreCase = true) ||
                 msg.contains("connect", ignoreCase = true) ->
                 "Internet awulak wage. Connection eka balala aye try karanna."
             else -> "Luna engine error: $msg"

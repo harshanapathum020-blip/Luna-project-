@@ -24,7 +24,11 @@ class LunaPrefs(context: Context) {
         }
 
     var model: String
-        get() = sp.getString("model", DEFAULT_MODEL).orEmpty().ifBlank { DEFAULT_MODEL }
+        get() {
+            val saved = sp.getString("model", DEFAULT_MODEL).orEmpty().ifBlank { DEFAULT_MODEL }
+            // gemini-2.5-* is being retired (404), so move old saved values to the new default.
+            return if (saved.startsWith("gemini-2.5")) DEFAULT_MODEL else saved
+        }
         set(value) {
             sp.edit().putString("model", value.trim().ifBlank { DEFAULT_MODEL }).apply()
         }
@@ -54,6 +58,32 @@ class LunaPrefs(context: Context) {
         get() = sp.getBoolean("wake_enabled", true)
         set(value) {
             sp.edit().putBoolean("wake_enabled", value).apply()
+        }
+
+    /** After Luna finishes speaking she listens again (hands-free back and forth chat). */
+    var conversationMode: Boolean
+        get() = sp.getBoolean("conversation_mode", false)
+        set(value) {
+            sp.edit().putBoolean("conversation_mode", value).apply()
+        }
+
+    /** Chosen text-to-speech voice name per language ("si" or "en"); blank = engine default. */
+    fun voiceName(lang: String): String = sp.getString("voice_$lang", "").orEmpty()
+
+    fun setVoiceName(lang: String, name: String) {
+        sp.edit().putString("voice_$lang", name).apply()
+    }
+
+    var speechRate: Float
+        get() = sp.getFloat("speech_rate", 1.0f)
+        set(value) {
+            sp.edit().putFloat("speech_rate", value.coerceIn(0.5f, 2.0f)).apply()
+        }
+
+    var speechPitch: Float
+        get() = sp.getFloat("speech_pitch", 1.0f)
+        set(value) {
+            sp.edit().putFloat("speech_pitch", value.coerceIn(0.5f, 2.0f)).apply()
         }
 
     fun loadHistory(): List<ChatMessage> {
@@ -88,7 +118,7 @@ class LunaPrefs(context: Context) {
     }
 
     companion object {
-        const val DEFAULT_MODEL = "gemini-2.5-flash"
+        const val DEFAULT_MODEL = "gemini-3.1-flash-lite"
         private const val MAX_HISTORY = 200
     }
 }

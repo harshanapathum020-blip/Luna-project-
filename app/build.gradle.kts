@@ -11,6 +11,12 @@ val localProps = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }
 
+// local.properties first, then environment variables (GitHub Actions secrets).
+fun secret(name: String, default: String): String =
+    localProps.getProperty(name)?.takeIf { it.isNotBlank() }
+        ?: System.getenv(name)?.takeIf { it.isNotBlank() }
+        ?: default
+
 android {
     namespace = "com.luna.assistant"
     compileSdk = 35
@@ -23,9 +29,9 @@ android {
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GEMINI_API_KEY",
-            "\"${localProps.getProperty("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY_HERE")}\"")
+            "\"${secret("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY_HERE")}\"")
         buildConfigField("String", "PICOVOICE_ACCESS_KEY",
-            "\"${localProps.getProperty("PICOVOICE_ACCESS_KEY", "YOUR_PICOVOICE_ACCESS_KEY_HERE")}\"")
+            "\"${secret("PICOVOICE_ACCESS_KEY", "YOUR_PICOVOICE_ACCESS_KEY_HERE")}\"")
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -71,7 +77,6 @@ dependencies {
     // Needed for the XML theme Theme.Material3.DayNight.NoActionBar
     implementation("com.google.android.material:material:1.12.0")
 
-    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
-    implementation("ai.picovoice:porcupine-android:3.0.2")
+    implementation("ai.picovoice:porcupine-android:3.0.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }

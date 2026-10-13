@@ -60,7 +60,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun wakeWordConfigured(): Boolean =
-        !Config.PICOVOICE_ACCESS_KEY.startsWith("YOUR_")
+        Config.PICOVOICE_ACCESS_KEY.isNotBlank() &&
+            !Config.PICOVOICE_ACCESS_KEY.startsWith("YOUR_")
 
     private fun requestPermissionsThenStartService() {
         val micGranted = ContextCompat.checkSelfPermission(
@@ -90,6 +91,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         AppState.foreground = false
+        // Screen is gone: the background service owns the microphone for the wake word again.
+        LunaWakeService.resume()
         super.onStop()
     }
 

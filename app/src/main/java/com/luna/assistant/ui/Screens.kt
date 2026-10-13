@@ -50,6 +50,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -81,12 +83,14 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
+import kotlinx.coroutines.delay
 import com.luna.assistant.AppState
 import com.luna.assistant.LunaAccessibilityService
 import com.luna.assistant.LunaNotificationListener
 import com.luna.assistant.ChatMessage
 import com.luna.assistant.LunaViewModel
 import com.luna.assistant.OrbState
+import com.luna.assistant.VoiceOption
 import com.luna.assistant.ui.theme.DarkSurface
 import com.luna.assistant.ui.theme.DarkSurfaceContainer
 import com.luna.assistant.ui.theme.ErrorRed
@@ -135,8 +139,9 @@ fun LunaScreen(vm: LunaViewModel, onMic: () -> Unit) {
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val count = vm.messages.size
-    LaunchedEffect(count) {
-        if (count > 0) listState.animateScrollToItem(count - 1)
+    val lastLength = vm.messages.lastOrNull()?.text?.length ?: 0
+    LaunchedEffect(count, lastLength) {
+        if (count > 0) listState.scrollToItem(count - 1)
     }
     val micActive = vm.orbState == OrbState.LISTENING || vm.orbState == OrbState.SPEAKING
 
@@ -207,13 +212,17 @@ fun LunaScreen(vm: LunaViewModel, onMic: () -> Unit) {
                 modifier = Modifier.size(210.dp)
             )
         }
+        val live = vm.orbState == OrbState.LISTENING && vm.liveText.isNotBlank()
         Text(
-            text = captionFor(vm.orbState),
-            color = orbColor(vm.orbState),
-            fontSize = 14.sp,
+            text = if (live) vm.liveText else captionFor(vm.orbState),
+            color = if (live) TextPrimary else orbColor(vm.orbState),
+            fontSize = if (live) 16.sp else 14.sp,
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
+            maxLines = 3,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp)
         )
         Spacer(Modifier.height(8.dp))
 
@@ -576,7 +585,7 @@ fun ControlsScreen(vm: LunaViewModel) {
                 modifier = Modifier.fillMaxWidth()
             )
             Text(
-                "Default: gemini-2.5-flash. Model not found error ekak awoth wenas model eka danna.",
+                "Default: gemini-3.1-flash-lite (hodama speed). Model eka retire unoth Luna thaniyama anith model ekakata maru wenawa.",
                 color = TextSecondary,
                 fontSize = 12.sp
             )
@@ -611,6 +620,10 @@ fun ControlsScreen(vm: LunaViewModel) {
                 color = TextSecondary,
                 fontSize = 12.sp
             )
+            ToggleRow("Kathabaha mode (Luna katha kara iwara una gaman aye mama ahanawa)", vm.conversationMode) {
+                vm.setConversationMode(it)
+            }
+            VoicePicker(vm)
             ToggleRow("Offline mode (internet nathuwa)", vm.offlineMode) { vm.setOfflineMode(it) }
             Text(
                 "Offline mode eke Gemini use karanne nae. Alarm, timer, call, flashlight, volume wage phone commands witharai wada karanne. Speech eka offline wada karanna Google app eke offline speech pack download karala thiyenna one.",
@@ -623,7 +636,7 @@ fun ControlsScreen(vm: LunaViewModel) {
             ToggleRow("'Wake up Luna' always listening", vm.wakeEnabled) { vm.setWakeEnabled(it) }
             Text("Status: ${AppState.wakeStatus}", color = TextSecondary, fontSize = 13.sp)
             Text(
-                "App eka close karalath wada karanna Microphone permission, Picovoice key saha assets folder eke wake_up_luna_android.ppn file eka one.",
+                "App eka close karalath wada karanna Microphone permission, Picovoice key (GitHub secret ekak widiyata) saha assets folder eke wake_up_luna_android.ppn file eka one.",
                 color = TextSecondary,
                 fontSize = 12.sp
             )
@@ -644,6 +657,86 @@ fun ControlsScreen(vm: LunaViewModel) {
         ) {
             Text(if (saved) "Saved ✓" else "Save", fontWeight = FontWeight.Bold)
         }
+    }
+}
+
+@Composable
+private fun VoicePicker(vm: LunaViewModel) {
+    val lang = vm.language
+    var options by remember(lang) { mutableStateOf(emptyList<VoiceOption>()) }
+    LaunchedEffect(lang) {
+        delay(600) // the speech engine needs a moment to start
+        options = vm.voiceOptions(lang)
+    }
+    val selected = if (lang == "si") vm.voiceSi else vm.voiceEn
+    val sliderColors = SliderDefaults.colors(
+        thumbColor = NeonCyan,
+        activeTrackColor = NeonCyan,
+        inactiveTrackColor = GlassBorder
+    )
+
+    Text(
+        "Luna ge kata handa (${if (lang == "si") "සිංහල" else "English"})",
+        color = TextPrimary,
+        fontSize = 14.sp
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(onClick = { options = vm.voiceOptions(lang) }) {
+            Text("Voices load karanna", color = NeonCyan)
+        }
+        TextButton(onClick = { vm.previewVoice(lang) }) {
+            Text("Test", color = NeonCyan, fontWeight = FontWeight.Bold)
+        }
+    }
+    VoiceRow("Default voice", selected.isBlank()) {
+        vm.selectVoice(lang, "")
+        vm.previewVoice(lang)
+    }
+    if (options.isEmpty()) {
+        Text(
+            "Voices hambunae. Phone Settings > Text-to-speech eken voice data install karala 'Voices load karanna' tap karanna.",
+            color = TextSecondary,
+            fontSize = 12.sp
+        )
+    } else {
+        options.take(14).forEach { o ->
+            VoiceRow(o.label, selected == o.name) {
+                vm.selectVoice(lang, o.name)
+                vm.previewVoice(lang)
+            }
+        }
+    }
+    Text("Katha karana wegaya: ${"%.1f".format(vm.speechRate)}x", color = TextPrimary, fontSize = 13.sp)
+    Slider(
+        value = vm.speechRate,
+        onValueChange = { vm.updateSpeechRate(it) },
+        valueRange = 0.6f..1.6f,
+        colors = sliderColors
+    )
+    Text("Handa (pitch): ${"%.1f".format(vm.speechPitch)}", color = TextPrimary, fontSize = 13.sp)
+    Slider(
+        value = vm.speechPitch,
+        onValueChange = { vm.updateSpeechPitch(it) },
+        valueRange = 0.6f..1.6f,
+        colors = sliderColors
+    )
+}
+
+@Composable
+private fun VoiceRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .border(1.dp, if (selected) NeonCyan else GlassBorder, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, color = TextPrimary, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        if (selected) Text("✓", color = NeonCyan, fontWeight = FontWeight.Bold)
     }
 }
 
