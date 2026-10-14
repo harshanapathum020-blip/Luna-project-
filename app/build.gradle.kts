@@ -12,10 +12,16 @@ val localProps = Properties().apply {
 }
 
 // local.properties first, then environment variables (GitHub Actions secrets).
+// trim(): a secret pasted with a trailing newline/space would otherwise break BuildConfig.java
+// ("unclosed string literal") and fail the whole build.
 fun secret(name: String, default: String): String =
-    localProps.getProperty(name)?.takeIf { it.isNotBlank() }
+    (localProps.getProperty(name)?.takeIf { it.isNotBlank() }
         ?: System.getenv(name)?.takeIf { it.isNotBlank() }
-        ?: default
+        ?: default).trim()
+
+// Turns a value into a safe Java string literal for buildConfigField (escapes \ and ").
+fun String.asJavaString(): String =
+    "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 android {
     namespace = "com.luna.assistant"
@@ -29,9 +35,9 @@ android {
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GEMINI_API_KEY",
-            "\"${secret("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY_HERE")}\"")
+            secret("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY_HERE").asJavaString())
         buildConfigField("String", "PICOVOICE_ACCESS_KEY",
-            "\"${secret("PICOVOICE_ACCESS_KEY", "YOUR_PICOVOICE_ACCESS_KEY_HERE")}\"")
+            secret("PICOVOICE_ACCESS_KEY", "YOUR_PICOVOICE_ACCESS_KEY_HERE").asJavaString())
         vectorDrawables {
             useSupportLibrary = true
         }

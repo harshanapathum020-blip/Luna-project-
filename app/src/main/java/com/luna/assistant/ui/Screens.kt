@@ -39,6 +39,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Stop
@@ -432,73 +433,93 @@ fun MessageBubble(m: ChatMessage) {
 // -------------------------------------------------------------- History tab
 
 @Composable
-fun HistoryScreen(vm: LunaViewModel) {
+fun HistoryScreen(vm: LunaViewModel, onBack: () -> Unit) {
     var confirm by remember { mutableStateOf(false) }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-    ) {
-        Row(
+    LiquidBackdrop {
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp, bottom = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
         ) {
-            Text(
-                text = "HISTORY",
-                color = NeonCyan,
-                fontSize = 21.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 3.sp
-            )
-            if (vm.messages.isNotEmpty()) {
-                TextButton(onClick = {
-                    if (confirm) {
-                        vm.clearHistory()
-                        confirm = false
-                    } else {
-                        confirm = true
+            // Header: glass bar with back button and clear action
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp, bottom = 10.dp)
+                    .liquidGlass(RoundedCornerShape(22.dp))
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = NeonCyan)
                     }
-                }) {
-                    Icon(Icons.Default.Delete, contentDescription = null, tint = ErrorRed)
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (confirm) "Tap again to clear" else "Clear", color = ErrorRed)
+                    Text(
+                        text = "HISTORY",
+                        color = NeonCyan,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 3.sp
+                    )
+                }
+                if (vm.messages.isNotEmpty()) {
+                    TextButton(onClick = {
+                        if (confirm) {
+                            vm.clearHistory()
+                            confirm = false
+                        } else {
+                            confirm = true
+                        }
+                    }) {
+                        Icon(Icons.Default.Delete, contentDescription = null, tint = ErrorRed)
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (confirm) "Tap again to clear" else "Clear", color = ErrorRed)
+                    }
                 }
             }
-        }
 
-        if (vm.messages.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "History khali. Luna ekka katha karapu gaman methana penawa.",
-                    color = TextSecondary,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(32.dp)
-                )
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(vertical = 10.dp)
-            ) {
-                items(vm.messages.asReversed()) { m ->
-                    val stamp = remember(m.time) {
-                        SimpleDateFormat("d MMM, HH:mm", Locale.getDefault()).format(Date(m.time))
-                    }
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = if (m.fromUser) Alignment.End else Alignment.Start
-                    ) {
-                        Text(
-                            text = (if (m.fromUser) "You" else "Luna") + "  •  " + stamp,
-                            color = TextSecondary,
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                        )
-                        MessageBubble(m)
+            if (vm.messages.isEmpty()) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(bottom = 80.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "History khali. Luna ekka katha karapu gaman methana penawa.",
+                        color = TextSecondary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .liquidGlass(RoundedCornerShape(20.dp))
+                            .padding(24.dp)
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(vertical = 6.dp, horizontal = 0.dp)
+                ) {
+                    items(vm.messages.asReversed()) { m ->
+                        val stamp = remember(m.time) {
+                            SimpleDateFormat("d MMM, HH:mm", Locale.getDefault()).format(Date(m.time))
+                        }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .liquidGlass(RoundedCornerShape(18.dp))
+                                .padding(12.dp),
+                            horizontalAlignment = if (m.fromUser) Alignment.End else Alignment.Start
+                        ) {
+                            Text(
+                                text = (if (m.fromUser) "You" else "Luna") + "  •  " + stamp,
+                                color = TextSecondary,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                            MessageBubble(m)
+                        }
                     }
                 }
             }

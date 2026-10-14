@@ -20,6 +20,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +54,9 @@ fun LunaApp(vm: LunaViewModel) {
     LaunchedEffect(vm.orbState) {
         if (vm.orbState == OrbState.IDLE) LunaWakeService.resume() else LunaWakeService.pause()
     }
+
+    // Back from History (or Controls) returns to the Luna screen instead of closing the app.
+    BackHandler(enabled = tab != 0) { tab = 0 }
 
     val micLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -105,7 +109,7 @@ fun LunaApp(vm: LunaViewModel) {
         ) {
             when (tab) {
                 0 -> LunaScreen(vm, onMic)
-                1 -> HistoryScreen(vm)
+                1 -> HistoryScreen(vm, onBack = { tab = 0 })
                 else -> ControlsScreen(vm)
             }
         }
